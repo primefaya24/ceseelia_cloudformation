@@ -88,7 +88,7 @@ Resources:
       EmailConfiguration: 
         EmailSendingAccount: DEVELOPER
         From: support@expeerium.com
-        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/primefaya.com #<========================================================================
+        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/expeerium.com
       Policies:
         PasswordPolicy:
           MinimumLength: 8
@@ -119,41 +119,9 @@ Resources:
       UserPoolId: !Ref CognitoUserPool 
       Domain: !Sub expeerium-auth-${StageName}
 
-  CognitoUserPoolIdentityProviderGoogle: # Google
-    DependsOn: CognitoUserPool
-    Type: AWS::Cognito::UserPoolIdentityProvider
-    Properties: 
-      UserPoolId: !Ref CognitoUserPool
-      ProviderName: Google
-      ProviderType: Google
-      ProviderDetails:
-        client_id: 931719230096-v2bp3d6ko6nhpisj0dnkmikdo9eia6tp.apps.googleusercontent.com
-        client_secret: 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
-        authorize_scopes: profile email openid
-      AttributeMapping:
-        "custom:userName": "name"
-        email: email
-
-  CognitoUserPoolIdentityProviderAmazon: # Amazon
-    DependsOn: CognitoUserPool
-    Type: AWS::Cognito::UserPoolIdentityProvider
-    Properties: 
-      UserPoolId: !Ref CognitoUserPool
-      ProviderName: LoginWithAmazon
-      ProviderType: LoginWithAmazon
-      ProviderDetails:
-        client_id: amzn1.application-oa2-client.d334d78e6a6d4de1830173756eea0073
-        client_secret: amzn1.oa2-cs.v1.c8927cc9d2b4e38366075d54fe74290d0e2fafe4bd8b383b029915688103c50c
-        authorize_scopes: profile
-      AttributeMapping:
-        "custom:userName": "name"
-        email: email
-
   CognitoUserPoolClient:
     DependsOn:
       - CognitoUserPool
-      - CognitoUserPoolIdentityProviderGoogle
-      - CognitoUserPoolIdentityProviderAmazon
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref CognitoUserPool
