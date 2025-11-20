@@ -112,12 +112,12 @@ Resources:
       EmailVerificationSubject: "Verification - Expeerium"
       EmailVerificationMessage: "Here's your verification code: <b>{####}</b> <br>Please provide it inside the application."
       
-  UserPoolDomain: 
-    DependsOn: CognitoUserPool
-    Type: AWS::Cognito::UserPoolDomain 
-    Properties:
-      UserPoolId: !Ref CognitoUserPool 
-      Domain: !Sub expeerium-auth-${StageName}-${AWS::AccountId}
+  # UserPoolDomain: 
+  #   DependsOn: CognitoUserPool
+  #   Type: AWS::Cognito::UserPoolDomain 
+  #   Properties:
+  #     UserPoolId: !Ref CognitoUserPool 
+  #     Domain: !Sub expeerium-auth-${StageName}
 
   CognitoUserPoolClient:
     DependsOn:
