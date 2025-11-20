@@ -37,15 +37,6 @@ jobs:
           aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.REGION }}
-      - name: install npm & google layers
-        run: cd ./lambda/layers/npm/nodejs/ && 
-             rm -rf node_modules/  && 
-             npm install && 
-             cd ../../../../ && 
-             cd ./lambda/layers/google/nodejs/ && 
-             rm -rf node_modules/  && 
-             npm install && 
-             cd ../../../../
       - name: Deploy to dev account
         run: |
           sam deploy --stack-name ${DEV_STACK_NAME} \
@@ -71,15 +62,6 @@ jobs:
           aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.REGION }}
-      - name: install npm & google layers
-        run: cd ./lambda/layers/npm/nodejs/ && 
-             rm -rf node_modules/  && 
-             npm install && 
-             cd ../../../../ && 
-             cd ./lambda/layers/google/nodejs/ && 
-             rm -rf node_modules/  && 
-             npm install && 
-             cd ../../../../
       - name: Deploy to prod account
         run: |
           sam deploy --stack-name ${PROD_STACK_NAME} \
