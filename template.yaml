@@ -117,7 +117,7 @@ Resources:
     Type: AWS::Cognito::UserPoolDomain 
     Properties:
       UserPoolId: !Ref CognitoUserPool 
-      Domain: !Sub expeerium-auth-${StageName}
+      Domain: !Sub expeerium-auth-${StageName}-${AWS::AccountId}
 
   CognitoUserPoolClient:
     DependsOn:
