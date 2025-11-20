@@ -1,0 +1,92 @@
+          
+name: Pipeline
+
+on:
+  push:
+    branches:
+      - 'dev_v1.0.0'
+      - 'prod_v1.0.0'
+
+env:
+  API_VERSION: v1
+  PIPELINE_USER_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  PIPELINE_USER_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  SAM_TEMPLATE: template.yaml
+  REGION: us-east-1
+  
+  STAGE_DEV: dev
+  DEV_STACK_NAME: primesync-dev
+  DEV_ARTIFACTS_BUCKET: primesync-sam-artifacts
+
+  STAGE_PROD: prod
+  PROD_STACK_NAME: primesync-prod
+  PROD_ARTIFACTS_BUCKET: primesync-sam-artifacts
+
+jobs:
+  deploy-dev:
+    if: github.ref == 'refs/heads/dev_v1.0.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/setup-sam@v2
+        with:
+          version: 1.140.0
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.REGION }}
+      - name: install npm & google layers
+        run: cd ./lambda/layers/npm/nodejs/ && 
+             rm -rf node_modules/  && 
+             npm install && 
+             cd ../../../../ && 
+             cd ./lambda/layers/google/nodejs/ && 
+             rm -rf node_modules/  && 
+             npm install && 
+             cd ../../../../
+      - name: Deploy to dev account
+        run: |
+          sam deploy --stack-name ${DEV_STACK_NAME} \
+            --template ${SAM_TEMPLATE} \
+            --parameter-overrides StageName=${STAGE_DEV} ApiVersion=${API_VERSION} \
+            --capabilities CAPABILITY_IAM \
+            --region ${REGION} \
+            --s3-bucket ${DEV_ARTIFACTS_BUCKET} \
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/prod_v1.0.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/setup-sam@v2
+        with:
+          version: 1.140.0
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.REGION }}
+      - name: install npm & google layers
+        run: cd ./lambda/layers/npm/nodejs/ && 
+             rm -rf node_modules/  && 
+             npm install && 
+             cd ../../../../ && 
+             cd ./lambda/layers/google/nodejs/ && 
+             rm -rf node_modules/  && 
+             npm install && 
+             cd ../../../../
+      - name: Deploy to prod account
+        run: |
+          sam deploy --stack-name ${PROD_STACK_NAME} \
+            --template ${SAM_TEMPLATE} \
+            --parameter-overrides StageName=${STAGE_PROD} ApiVersion=${API_VERSION} \
+            --capabilities CAPABILITY_IAM \
+            --region ${REGION} \
+            --s3-bucket ${PROD_ARTIFACTS_BUCKET} \
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset

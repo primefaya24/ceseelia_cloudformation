@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Expeerium backend
+
+######################################
+# Parameters #
+######################################
+Parameters:
+  ApiVersion:
+    Type: String
+    Default: v1
+    Description: Enter API version
+
+  StageName:
+    Type: String
+    Default: dev
+    Description: Enter dev, staging, or prod
+
+  NodeJsRuntime:
+    Type: String
+    Default: nodejs18.x
+    Description: Enter like nodejs14.x
+
+######################################
+# Global configurations #
+######################################
+Globals:
+  Function:
+    Runtime: !Sub ${NodeJsRuntime}
+    MemorySize: 128 # MB
+    Timeout: 30 # Seconds
+    Layers:
+      - !Ref NodeModulesLayer
+      - !Ref CustomLibrariesLayer
+    Environment:
+      Variables:
+        # General
+        STAGE: !Sub ${StageName}
+        REGION: !Sub ${AWS::Region}
+        TABLE_NAME: !Sub expeerium_${StageName}
+        S3_STORAGE_BUCKET: !Sub expeerium-storage-${StageName}
+        SECRET_STORAGE_BUCKET: secrets.primefaya.com
+        PUBLIC_STORAGE_BUCKET: public.primefaya.com
+
+######################################
+# Conditions #
+######################################
+Conditions: 
+  IsProductionEnvironment: !Equals [ !Ref StageName, prod ]
+
+######################################
+# Resources #
+######################################
+Resources:
+  ######################################
+  # Lambda Functions - Layers
+  ######################################
+  ### NPM Libraries Layer ###
+  NodeModulesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub node-modules-layer-expeerium-${StageName}-${ApiVersion}
+      Description: A layer with npm packages
+      ContentUri: ./lambda/layers/npm
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: !Sub ${NodeJsRuntime}
+
+  ### Custom Libraries Layer ###
+  CustomLibrariesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub custom-libraries-layer-expeerium-${StageName}-${ApiVersion}
+      Description: A layer with custom libraries
+      ContentUri: ./lambda/layers/custom
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: !Sub ${NodeJsRuntime}
+
+  ######################################
+  # Cognito
+  ######################################
+  ### Cognito ###
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub expeerium-${StageName}
+      EmailConfiguration: 
+        EmailSendingAccount: DEVELOPER
+        From: support@expeerium.com
+        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/primefaya.com #<========================================================================
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: false
+          RequireNumbers: true
+          RequireSymbols: false
+      UsernameAttributes:
+        - email
+      Schema:
+        - AttributeDataType: String
+          Name: userName
+          Mutable: true
+          Required: false
+        - AttributeDataType: String
+          Name: email
+          Mutable: true
+          Required: true
+      AutoVerifiedAttributes:
+        - email
+      EmailVerificationSubject: "Verification - Expeerium"
+      EmailVerificationMessage: "Here's your verification code: <b>{####}</b> <br>Please provide it inside the application."
+      
+  UserPoolDomain: 
+    DependsOn: CognitoUserPool
+    Type: AWS::Cognito::UserPoolDomain 
+    Properties:
+      UserPoolId: !Ref CognitoUserPool 
+      Domain: !Sub expeerium-auth-${StageName}
+
+  CognitoUserPoolIdentityProviderGoogle: # Google
+    DependsOn: CognitoUserPool
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties: 
+      UserPoolId: !Ref CognitoUserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: 931719230096-v2bp3d6ko6nhpisj0dnkmikdo9eia6tp.apps.googleusercontent.com
+        client_secret: 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
+        authorize_scopes: profile email openid
+      AttributeMapping:
+        "custom:userName": "name"
+        email: email
+
+  CognitoUserPoolIdentityProviderAmazon: # Amazon
+    DependsOn: CognitoUserPool
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties: 
+      UserPoolId: !Ref CognitoUserPool
+      ProviderName: LoginWithAmazon
+      ProviderType: LoginWithAmazon
+      ProviderDetails:
+        client_id: amzn1.application-oa2-client.d334d78e6a6d4de1830173756eea0073
+        client_secret: amzn1.oa2-cs.v1.c8927cc9d2b4e38366075d54fe74290d0e2fafe4bd8b383b029915688103c50c
+        authorize_scopes: profile
+      AttributeMapping:
+        "custom:userName": "name"
+        email: email
+
+  CognitoUserPoolClient:
+    DependsOn:
+      - CognitoUserPool
+      - CognitoUserPoolIdentityProviderGoogle
+      - CognitoUserPoolIdentityProviderAmazon
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub ${StageName}-expeerium-pool-client
+      SupportedIdentityProviders:
+        - Google
+        - LoginWithAmazon
+        - SignInWithApple
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+        - aws.cognito.signin.user.admin
+      RefreshTokenValidity: 365
+      ReadAttributes:
+        - "custom:userName"
+        - email
+      WriteAttributes:
+        - "custom:userName"
+        - email
+      CallbackURLs:
+        - comprimefayaexpeeriumwebviewcallback://
+      LogoutURLs:
+        - comprimefayaexpeeriumwebviewcallback://
+
+  ######################################
+  # DynamoDB
+  ######################################
+  ### DatabaseTable ###
+  DatabaseTable:
+    Type: AWS::DynamoDB::GlobalTable # Manually enable Point-in-time recovery (PITR)
+    Properties: 
+      TableName: !Sub expeerium_${StageName}
+      BillingMode: "PAY_PER_REQUEST"
+      AttributeDefinitions: 
+        -
+          AttributeName: "pk"
+          AttributeType: "S"
+        -
+          AttributeName: "sk"
+          AttributeType: "S"
+        # CognitoIdentifierGSI
+        -
+          AttributeName: "userCognitoId"
+          AttributeType: "S"
+        # UserEmailGSI
+        -
+          AttributeName: "userEmail"
+          AttributeType: "S"
+      KeySchema:
+        -
+          AttributeName: "pk"
+          KeyType: "HASH"
+        -
+          AttributeName: "sk"
+          KeyType: "RANGE"
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      GlobalSecondaryIndexes:
+        # CognitoIdentifierGSI
+        - IndexName: CognitoIdentifierGSI
+          KeySchema:
+            - AttributeName: "userCognitoId"
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: ALL
+        # UserEmailGSI
+        - IndexName: UserEmailGSI
+          KeySchema:
+            - AttributeName: "userEmail"
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: KEYS_ONLY
+      Replicas:
+        - Region: !Sub ${AWS::Region}
+
+  ######################################
+  # S3
+  ######################################
+  ### Storage Bucket ###
+  StorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub expeerium-storage-${StageName}
+      AccessControl: Private
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+            AllowedOrigins:
+              - '*'
+            Id: corsRule1
+
+  ######################################
+  # Lambda - Cognito Triggers
+  ######################################
+  ### OnUserRegister ###
+  OnUserRegister:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub OnUserRegister-expeerium-${StageName}-${ApiVersion}
+      CodeUri: ./lambda/triggers/cognito/on-user-register
+      Handler: app.lambdaHandler
+      Policies:
+        - AmazonDynamoDBFullAccess
+      Events:
+        ExplicitApi:
+          Type: Cognito
+          Properties:
+            UserPool: !Ref CognitoUserPool
+            Trigger: PostConfirmation
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+
+
+
+
+  
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+ 
+
+ 
+  
+
+
+
+
+
+
+ 
+
+  

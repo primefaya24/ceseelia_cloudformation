@@ -1,0 +1,32 @@
+{
+  "main": "app.ts",
+  "scripts": {
+    "compile": "tsc"
+  },
+  "dependencies": {
+    "@apple/app-store-server-library": "^0.1.1",
+    "@aws-sdk/client-cloudfront": "^3.335.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.231.0",
+    "@aws-sdk/client-dynamodb": "^3.225.0",
+    "@aws-sdk/client-route-53": "^3.699.0",
+    "@aws-sdk/client-route-53-domains": "^3.699.0",
+    "@aws-sdk/client-s3": "^3.224.0",
+    "@aws-sdk/client-secrets-manager": "^3.332.0",
+    "@aws-sdk/client-sns": "^3.758.0",
+    "@aws-sdk/client-sqs": "^3.540.0",
+    "@aws-sdk/client-textract": "^3.623.0",
+    "@aws-sdk/lib-dynamodb": "^3.225.0",
+    "@aws-sdk/s3-request-presigner": "^3.224.0",
+    "app-store-server-api": "^0.12.0",
+    "aws-textract-helper": "^1.0.0-beta.5",
+    "axios": "^1.8.1",
+    "https": "^1.0.0",
+    "jsonwebtoken": "^8.5.1",
+    "jwks-rsa": "^3.1.0",
+    "moment-timezone": "^0.5.47",
+    "pdfkit": "^0.16.0",
+    "stripe": "^12.5.0",
+    "ulid": "^2.3.0",
+    "nodemailer": "^6.9.1"
+  }
+}
