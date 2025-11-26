@@ -126,10 +126,6 @@ Resources:
     Properties:
       UserPoolId: !Ref CognitoUserPool
       ClientName: !Sub ${StageName}-ceseelia-pool-client
-      SupportedIdentityProviders:
-        - Google
-        - LoginWithAmazon
-        - SignInWithApple
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
         - code
