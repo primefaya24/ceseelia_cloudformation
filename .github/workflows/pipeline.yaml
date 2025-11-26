@@ -15,12 +15,12 @@ env:
   REGION: us-east-1
   
   STAGE_DEV: dev
-  DEV_STACK_NAME: primesync-dev
-  DEV_ARTIFACTS_BUCKET: primesync-sam-artifacts
+  DEV_STACK_NAME: ceseelia-dev
+  DEV_ARTIFACTS_BUCKET: ceseelia-sam-artifacts
 
   STAGE_PROD: prod
-  PROD_STACK_NAME: primesync-prod
-  PROD_ARTIFACTS_BUCKET: primesync-sam-artifacts
+  PROD_STACK_NAME: ceseelia-prod
+  PROD_ARTIFACTS_BUCKET: ceseelia-sam-artifacts
 
 jobs:
   deploy-dev:

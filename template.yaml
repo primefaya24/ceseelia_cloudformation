@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Expeerium backend
+Description: Ceseelia backend
 
 ######################################
 # Parameters #
@@ -37,8 +37,8 @@ Globals:
         # General
         STAGE: !Sub ${StageName}
         REGION: !Sub ${AWS::Region}
-        TABLE_NAME: !Sub expeerium_${StageName}
-        S3_STORAGE_BUCKET: !Sub expeerium-storage-${StageName}
+        TABLE_NAME: !Sub ceseelia_${StageName}
+        S3_STORAGE_BUCKET: !Sub ceseelia-storage-${StageName}
         SECRET_STORAGE_BUCKET: secrets.primefaya.com
         PUBLIC_STORAGE_BUCKET: public.primefaya.com
 
@@ -59,7 +59,7 @@ Resources:
   NodeModulesLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: !Sub node-modules-layer-expeerium-${StageName}-${ApiVersion}
+      LayerName: !Sub node-modules-layer-ceseelia-${StageName}-${ApiVersion}
       Description: A layer with npm packages
       ContentUri: ./lambda/layers/npm
       RetentionPolicy: Retain
@@ -70,7 +70,7 @@ Resources:
   CustomLibrariesLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: !Sub custom-libraries-layer-expeerium-${StageName}-${ApiVersion}
+      LayerName: !Sub custom-libraries-layer-ceseelia-${StageName}-${ApiVersion}
       Description: A layer with custom libraries
       ContentUri: ./lambda/layers/custom
       RetentionPolicy: Retain
@@ -84,11 +84,11 @@ Resources:
   CognitoUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub expeerium-${StageName}
+      UserPoolName: !Sub ceseelia-${StageName}
       EmailConfiguration: 
         EmailSendingAccount: DEVELOPER
-        From: support@expeerium.com
-        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/expeerium.com
+        From: support@ceseelia.com
+        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/ceseelia.com
       Policies:
         PasswordPolicy:
           MinimumLength: 8
@@ -109,7 +109,7 @@ Resources:
           Required: true
       AutoVerifiedAttributes:
         - email
-      EmailVerificationSubject: "Verification - Expeerium"
+      EmailVerificationSubject: "Verification - Ceseelia"
       EmailVerificationMessage: "Here's your verification code: <b>{####}</b> <br>Please provide it inside the application."
       
   UserPoolDomain: 
@@ -117,7 +117,7 @@ Resources:
     Type: AWS::Cognito::UserPoolDomain 
     Properties:
       UserPoolId: !Ref CognitoUserPool 
-      Domain: !Sub expeerium-auth-${StageName}
+      Domain: !Sub ceseelia-auth-${StageName}
 
   CognitoUserPoolClient:
     DependsOn:
@@ -125,7 +125,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref CognitoUserPool
-      ClientName: !Sub ${StageName}-expeerium-pool-client
+      ClientName: !Sub ${StageName}-ceseelia-pool-client
       SupportedIdentityProviders:
         - Google
         - LoginWithAmazon
@@ -147,9 +147,9 @@ Resources:
         - "custom:userName"
         - email
       CallbackURLs:
-        - comprimefayaexpeeriumwebviewcallback://
+        - comprimefayaceseeliawebviewcallback://
       LogoutURLs:
-        - comprimefayaexpeeriumwebviewcallback://
+        - comprimefayaceseeliawebviewcallback://
 
   ######################################
   # DynamoDB
@@ -158,7 +158,7 @@ Resources:
   DatabaseTable:
     Type: AWS::DynamoDB::GlobalTable # Manually enable Point-in-time recovery (PITR)
     Properties: 
-      TableName: !Sub expeerium_${StageName}
+      TableName: !Sub ceseelia_${StageName}
       BillingMode: "PAY_PER_REQUEST"
       AttributeDefinitions: 
         -
@@ -210,7 +210,7 @@ Resources:
   StorageBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub expeerium-storage-${StageName}
+      BucketName: !Sub ceseelia-storage-${StageName}
       AccessControl: Private
       CorsConfiguration:
         CorsRules:
@@ -230,7 +230,7 @@ Resources:
   OnUserRegister:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub OnUserRegister-expeerium-${StageName}-${ApiVersion}
+      FunctionName: !Sub OnUserRegister-ceseelia-${StageName}-${ApiVersion}
       CodeUri: ./lambda/triggers/cognito/on-user-register
       Handler: app.lambdaHandler
       Policies:

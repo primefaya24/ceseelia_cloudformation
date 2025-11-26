@@ -1,9 +1,9 @@
 version = 0.1
 
 [dev.deploy.parameters]
-stack_name = "expeerium-dev"
-s3_bucket = "expeerium-sam-artifacts"
-s3_prefix = "expeerium-dev"
+stack_name = "ceseelia-dev"
+s3_bucket = "ceseelia-sam-artifacts"
+s3_prefix = "ceseelia-dev"
 region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
@@ -11,9 +11,9 @@ image_repositories = []
 parameter_overrides = "StageName=\"dev\" ApiVersion=\"v1\""
 
 [prod.deploy.parameters]
-stack_name = "expeerium-prod"
-s3_bucket = "expeerium-sam-artifacts"
-s3_prefix = "expeerium-prod"
+stack_name = "ceseelia-prod"
+s3_bucket = "ceseelia-sam-artifacts"
+s3_prefix = "ceseelia-prod"
 region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
