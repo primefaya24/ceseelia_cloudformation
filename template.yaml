@@ -78,7 +78,7 @@ Resources:
       BuildMethod: !Sub ${NodeJsRuntime}
 
   ######################################
-  # Cognito
+  # Cognito 
   ######################################
   ### Cognito ###
   CognitoUserPool:
