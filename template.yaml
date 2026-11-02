@@ -87,8 +87,8 @@ Resources:
       UserPoolName: !Sub ceseelia-${StageName}
       EmailConfiguration: 
         EmailSendingAccount: DEVELOPER
-        From: support@ceseelia.com
-        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/ceseelia.com
+        From: support@northernhoop.com
+        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/northernhoop.com
       Policies:
         PasswordPolicy:
           MinimumLength: 8
