@@ -21,7 +21,7 @@ lambda/
 
 ## Infrastructure (template.yaml)
 
-Parameters: `StageName` (dev|prod), `ApiVersion` (v1), `NodeJsRuntime` (default `nodejs18.x`). Most resource names are suffixed with `${StageName}` and Lambdas also with `${ApiVersion}`.
+Parameters: `StageName` (dev|prod), `ApiVersion` (v1), `NodeJsRuntime` (default `nodejs18.x`), `DomainName` (default `ceseelia.com`; drives the Cognito SES sender `support@<DomainName>` and must be a verified SES identity). Most resource names are suffixed with `${StageName}` and Lambdas also with `${ApiVersion}`.
 
 - **Globals**: every function gets both layers, 128 MB, 30 s timeout, plus env vars `STAGE`, `REGION`, `TABLE_NAME` (`ceseelia_<stage>`), `S3_STORAGE_BUCKET`, `SECRET_STORAGE_BUCKET`, `PUBLIC_STORAGE_BUCKET`.
 - **Layers**: `NodeModulesLayer` (npm) and `CustomLibrariesLayer` (custom). Lambdas import custom libs as bare modules, e.g. `require('dynamodb/dynamo-entities/user/index')`, `require('environment/index')`.

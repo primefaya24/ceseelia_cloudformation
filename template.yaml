@@ -21,6 +21,11 @@ Parameters:
     Default: nodejs18.x
     Description: Enter like nodejs14.x
 
+  DomainName:
+    Type: String
+    Default: ceseelia.com
+    Description: Base domain of the platform (must be a verified SES domain identity in this account/region)
+
 ######################################
 # Global configurations #
 ######################################
@@ -87,8 +92,8 @@ Resources:
       UserPoolName: !Sub ceseelia-${StageName}
       EmailConfiguration: 
         EmailSendingAccount: DEVELOPER
-        From: support@northernhoop.com
-        SourceArn: arn:aws:ses:us-east-1:258084617016:identity/northernhoop.com
+        From: !Sub support@${DomainName}
+        SourceArn: !Sub arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}
       Policies:
         PasswordPolicy:
           MinimumLength: 8
