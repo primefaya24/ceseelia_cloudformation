@@ -30,7 +30,7 @@ Parameters: `StageName` (dev|prod), `ApiVersion` (v1), `NodeJsRuntime` (default 
   - `CognitoIdentifierGSI` on `userCognitoId` (ALL)
   - `UserEmailGSI` on `userEmail` (KEYS_ONLY)
   - PITR must be enabled manually.
-- **S3**: `ceseelia-storage-<stage>`, private, CORS GET/PUT from `*`.
+- **S3**: `ceseelia-storage-<stage>`, private, CORS GET/PUT/POST from `*` (the backend's image uploads are presigned POSTs). Lifecycle rule `ExpireUnsavedUploads` deletes objects tagged `ceseelia-upload=pending` after 1 day; the backend tags every upload and clears the tag when a store, category or item saves it.
 - **Lambdas**: currently only `OnUserRegister` (Cognito `PostConfirmation`).
 
 ## Data model (single-table)
