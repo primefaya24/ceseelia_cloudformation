@@ -220,9 +220,21 @@ Resources:
             AllowedMethods:
               - GET
               - PUT
+              # Image uploads are presigned POSTs since backend 2.3 (size and type capped by S3)
+              - POST
             AllowedOrigins:
               - '*'
             Id: corsRule1
+      LifecycleConfiguration:
+        Rules:
+          # Backend 2.3d: every upload is tagged ceseelia-upload=pending; saving the store,
+          # category or item that uses it removes the tag. Uploads nobody saved go after a day.
+          - Id: ExpireUnsavedUploads
+            Status: Enabled
+            TagFilters:
+              - Key: ceseelia-upload
+                Value: pending
+            ExpirationInDays: 1
 
   ######################################
   # Lambda - Cognito Triggers
