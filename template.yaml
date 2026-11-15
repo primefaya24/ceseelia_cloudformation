@@ -18,13 +18,22 @@ Parameters:
 
   NodeJsRuntime:
     Type: String
-    Default: nodejs18.x
-    Description: Enter like nodejs14.x
+    # nodejs18.x is past end of support (Lambda blocks updates to it). Not 24.x: OnUserRegister's
+    # handler takes a callback, which nodejs24.x no longer supports.
+    Default: nodejs22.x
+    Description: Enter like nodejs22.x
 
   DomainName:
     Type: String
     Default: ceseelia.com
     Description: Base domain of the platform (must be a verified SES domain identity in this account/region)
+
+  # 9.6: where alarms are emailed. Empty = no email subscription (subscribe to the topic in the
+  # console instead). AWS emails a confirmation link first; alarms only arrive once it's clicked.
+  AlarmEmail:
+    Type: String
+    Default: ""
+    Description: Email address for CloudWatch alarm notifications (optional)
 
 ######################################
 # Global configurations #
@@ -52,6 +61,7 @@ Globals:
 ######################################
 Conditions: 
   IsProductionEnvironment: !Equals [ !Ref StageName, prod ]
+  HasAlarmEmail: !Not [ !Equals [ !Ref AlarmEmail, "" ] ]
 
 ######################################
 # Resources #
@@ -88,8 +98,12 @@ Resources:
   ### Cognito ###
   CognitoUserPool:
     Type: AWS::Cognito::UserPool
+    # 9.6: every account lives here; a lost pool can't be restored. Keep it with the stack's delete.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       UserPoolName: !Sub ceseelia-${StageName}
+      DeletionProtection: ACTIVE
       EmailConfiguration: 
         EmailSendingAccount: DEVELOPER
         From: !Sub support@${DomainName}
@@ -157,7 +171,10 @@ Resources:
   ######################################
   ### DatabaseTable ###
   DatabaseTable:
-    Type: AWS::DynamoDB::GlobalTable # Manually enable Point-in-time recovery (PITR)
+    Type: AWS::DynamoDB::GlobalTable
+    # 9.6: the table holds every store, order and user; never deleted or replaced with the stack.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties: 
       TableName: !Sub ceseelia_${StageName}
       BillingMode: "PAY_PER_REQUEST"
@@ -203,6 +220,10 @@ Resources:
             ProjectionType: KEYS_ONLY
       Replicas:
         - Region: !Sub ${AWS::Region}
+          # 9.6: restore to any second of the last 35 days; and no accidental delete-table.
+          PointInTimeRecoverySpecification:
+            PointInTimeRecoveryEnabled: true
+          DeletionProtectionEnabled: true
 
   ######################################
   # S3
@@ -210,9 +231,20 @@ Resources:
   ### Storage Bucket ###
   StorageBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub ceseelia-storage-${StageName}
       AccessControl: Private
+      # Already on for both buckets (set by hand); written down so the stack keeps it that way.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # 9.6: a deleted or overwritten image can be brought back for 30 days.
+      VersioningConfiguration:
+        Status: Enabled
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
@@ -235,6 +267,14 @@ Resources:
               - Key: ceseelia-upload
                 Value: pending
             ExpirationInDays: 1
+          # 9.6: old versions (deleted or replaced images) are kept 30 days, then removed.
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            ExpiredObjectDeleteMarker: true
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
 
   ######################################
   # Lambda - Cognito Triggers
@@ -246,8 +286,10 @@ Resources:
       FunctionName: !Sub OnUserRegister-ceseelia-${StageName}-${ApiVersion}
       CodeUri: ./lambda/triggers/cognito/on-user-register
       Handler: app.lambdaHandler
+      # 9.5 least privilege: this stage's table and its indexes only (was AmazonDynamoDBFullAccess).
       Policies:
-        - AmazonDynamoDBFullAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DatabaseTable
       Events:
         ExplicitApi:
           Type: Cognito
@@ -255,67 +297,160 @@ Resources:
             UserPool: !Ref CognitoUserPool
             Trigger: PostConfirmation
 
+  ######################################
+  # 9.6 Logs & alarms
+  ######################################
+  ### The API's logs (Docker's awslogs driver on the server; JSON lines from pino) ###
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ceseelia/${StageName}/api
+      RetentionInDays: 30
 
+  ### Every error-level line (pino level 50 = error, 60 = fatal) counts once ###
+  ApiErrorMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: "{ $.level >= 50 }"
+      MetricTransformations:
+        - MetricNamespace: !Sub Ceseelia/${StageName}
+          MetricName: ApiErrors
+          MetricValue: "1"
+          DefaultValue: 0
 
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ceseelia-alarms-${StageName}
 
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
 
-  
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ceseelia-${StageName}-api-errors
+      AlarmDescription: The API logged 5 or more errors in 5 minutes. Search the log group for level 50.
+      Namespace: !Sub Ceseelia/${StageName}
+      MetricName: ApiErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+      OKActions: [ !Ref AlarmTopic ]
 
+  DynamoThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ceseelia-${StageName}-dynamodb-throttles
+      AlarmDescription: DynamoDB throttled requests on the table (on-demand should rarely throttle).
+      Metrics:
+        - Id: total
+          Expression: "reads + writes"
+          Label: Throttle events
+        - Id: reads
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: ReadThrottleEvents
+              Dimensions: [ { Name: TableName, Value: !Ref DatabaseTable } ]
+            Period: 300
+            Stat: Sum
+        - Id: writes
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: WriteThrottleEvents
+              Dimensions: [ { Name: TableName, Value: !Ref DatabaseTable } ]
+            Period: 300
+            Stat: Sum
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
 
+  DynamoSystemErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ceseelia-${StageName}-dynamodb-system-errors
+      AlarmDescription: DynamoDB returned server errors (500s) for the table.
+      Namespace: AWS/DynamoDB
+      MetricName: SystemErrors
+      Dimensions: [ { Name: TableName, Value: !Ref DatabaseTable } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
 
+  OnUserRegisterErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ceseelia-${StageName}-sign-up-trigger-errors
+      AlarmDescription: The Cognito sign-up trigger failed (new users' rows are then made by get-my-profile).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [ { Name: FunctionName, Value: !Ref OnUserRegister } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
 
+  # SES reputation is per account and region, so only the prod stack watches it. AWS reviews an
+  # account at a 5% bounce rate or a 0.1% complaint rate; these warn well before that.
+  SesBounceRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProductionEnvironment
+    Properties:
+      AlarmName: ceseelia-ses-bounce-rate
+      AlarmDescription: SES bounce rate is over 3% (AWS reviews the account at 5%).
+      Namespace: AWS/SES
+      MetricName: Reputation.BounceRate
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0.03
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
 
+  SesComplaintRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProductionEnvironment
+    Properties:
+      AlarmName: ceseelia-ses-complaint-rate
+      AlarmDescription: SES complaint rate is over 0.05% (AWS reviews the account at 0.1%).
+      Namespace: AWS/SES
+      MetricName: Reputation.ComplaintRate
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0.0005
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
 
-
-
-
-
-
-
-
-
-
-
-
- 
- 
-
-
-
-
-  
-
-
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
- 
-
- 
-  
-
-
-
-
-
-
- 
-
-  
+Outputs:
+  ApiLogGroupName:
+    Description: The log group the API server's Docker awslogs driver writes to
+    Value: !Ref ApiLogGroup
+  AlarmTopicArn:
+    Description: SNS topic for alarms (subscribe an email or phone to it)
+    Value: !Ref AlarmTopic

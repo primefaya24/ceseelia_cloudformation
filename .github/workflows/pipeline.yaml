@@ -12,6 +12,9 @@ env:
   PIPELINE_USER_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   PIPELINE_USER_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   SAM_TEMPLATE: template.yaml
+  # 9.6: where alarms are emailed; a repository variable (Settings > Secrets and variables >
+  # Actions > Variables), so no address is in git. Unset = no email subscription.
+  ALARM_EMAIL: ${{ vars.ALARM_EMAIL }}
   REGION: us-east-1
   
   STAGE_DEV: dev
@@ -23,8 +26,20 @@ env:
   PROD_ARTIFACTS_BUCKET: ceseelia-sam-artifacts
 
 jobs:
+  # 9.5: the template must lint clean (errors; warnings are allowed) before anything deploys.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install cfn-lint==1.60.1
+      - run: cfn-lint --non-zero-exit-code error ${SAM_TEMPLATE}
+
   deploy-dev:
     if: github.ref == 'refs/heads/dev_v1.0.0'
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -46,7 +61,7 @@ jobs:
         run: |
           sam deploy --stack-name ${DEV_STACK_NAME} \
             --template ${SAM_TEMPLATE} \
-            --parameter-overrides StageName=${STAGE_DEV} ApiVersion=${API_VERSION} \
+            --parameter-overrides StageName=${STAGE_DEV} ApiVersion=${API_VERSION} ${ALARM_EMAIL:+AlarmEmail=$ALARM_EMAIL} \
             --capabilities CAPABILITY_IAM \
             --region ${REGION} \
             --s3-bucket ${DEV_ARTIFACTS_BUCKET} \
@@ -55,6 +70,7 @@ jobs:
 
   deploy-prod:
     if: github.ref == 'refs/heads/prod_v1.0.0'
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -76,7 +92,7 @@ jobs:
         run: |
           sam deploy --stack-name ${PROD_STACK_NAME} \
             --template ${SAM_TEMPLATE} \
-            --parameter-overrides StageName=${STAGE_PROD} ApiVersion=${API_VERSION} \
+            --parameter-overrides StageName=${STAGE_PROD} ApiVersion=${API_VERSION} ${ALARM_EMAIL:+AlarmEmail=$ALARM_EMAIL} \
             --capabilities CAPABILITY_IAM \
             --region ${REGION} \
             --s3-bucket ${PROD_ARTIFACTS_BUCKET} \

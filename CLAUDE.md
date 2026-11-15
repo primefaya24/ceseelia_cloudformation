@@ -21,17 +21,19 @@ lambda/
 
 ## Infrastructure (template.yaml)
 
-Parameters: `StageName` (dev|prod), `ApiVersion` (v1), `NodeJsRuntime` (default `nodejs18.x`), `DomainName` (default `ceseelia.com`; drives the Cognito SES sender `support@<DomainName>` and must be a verified SES identity). Most resource names are suffixed with `${StageName}` and Lambdas also with `${ApiVersion}`.
+Parameters: `StageName` (dev|prod), `ApiVersion` (v1), `NodeJsRuntime` (default `nodejs22.x`; not 24.x, which dropped callback handlers), `DomainName` (default `ceseelia.com`; drives the Cognito SES sender `support@<DomainName>` and must be a verified SES identity), `AlarmEmail` (optional; the pipeline passes the `ALARM_EMAIL` repo variable). Most resource names are suffixed with `${StageName}` and Lambdas also with `${ApiVersion}`.
 
 - **Globals**: every function gets both layers, 128 MB, 30 s timeout, plus env vars `STAGE`, `REGION`, `TABLE_NAME` (`ceseelia_<stage>`), `S3_STORAGE_BUCKET`, `SECRET_STORAGE_BUCKET`, `PUBLIC_STORAGE_BUCKET`.
 - **Layers**: `NodeModulesLayer` (npm) and `CustomLibrariesLayer` (custom). Lambdas import custom libs as bare modules, e.g. `require('dynamodb/dynamo-entities/user/index')`, `require('environment/index')`.
-- **Cognito**: user pool `ceseelia-<stage>` with email as username, custom attribute `custom:userName`, SES email from `support@ceseelia.com`, a hosted domain `ceseelia-auth-<stage>`, and an app client with code/implicit OAuth that calls back to `comprimefayaceseeliawebviewcallback://` (mobile webview).
+- **Cognito**: user pool `ceseelia-<stage>` (deletion protection ACTIVE, `Retain`) with email as username, custom attribute `custom:userName`, SES email from `support@ceseelia.com`, a hosted domain `ceseelia-auth-<stage>`, and an app client with code/implicit OAuth that calls back to `comprimefayaceseeliawebviewcallback://` (mobile webview).
 - **DynamoDB**: a single `GlobalTable` `ceseelia_<stage>`, pay-per-request, with `pk`/`sk` string keys and a `ttl` attribute. GSIs:
   - `CognitoIdentifierGSI` on `userCognitoId` (ALL)
   - `UserEmailGSI` on `userEmail` (KEYS_ONLY)
-  - PITR must be enabled manually.
-- **S3**: `ceseelia-storage-<stage>`, private, CORS GET/PUT/POST from `*` (the backend's image uploads are presigned POSTs). Lifecycle rule `ExpireUnsavedUploads` deletes objects tagged `ceseelia-upload=pending` after 1 day; the backend tags every upload and clears the tag when a store, category or item saves it.
-- **Lambdas**: currently only `OnUserRegister` (Cognito `PostConfirmation`).
+  - PITR on and deletion protection on (per replica), `DeletionPolicy: Retain` (9.6).
+- **S3**: `ceseelia-storage-<stage>`, private (public access block), versioned (old versions expire after 30 days, `ExpireOldVersions`), `Retain`, CORS GET/PUT/POST from `*` (the backend's image uploads are presigned POSTs). Lifecycle rule `ExpireUnsavedUploads` deletes objects tagged `ceseelia-upload=pending` after 1 day; the backend tags every upload and clears the tag when a store, category or item saves it.
+- **Lambdas**: currently only `OnUserRegister` (Cognito `PostConfirmation`), with `DynamoDBCrudPolicy` on this stage's table only.
+- **Logs & alarms (9.6)**: log group `/ceseelia/<stage>/api` (30 days; the API server's Docker `awslogs` driver writes to it), metric filter `{ $.level >= 50 }` → `Ceseelia/<stage>` `ApiErrors`; SNS topic `ceseelia-alarms-<stage>` (email subscription only if `AlarmEmail`); alarms: API errors ≥ 5 in 5 min, DynamoDB throttles and system errors, sign-up trigger errors, and (prod only, account-wide) SES bounce > 3% and complaint > 0.05%.
+- **Not in the template (made by hand):** the `Admins` Cognito group, the `ceseelia/<stage>` secrets, `CeseeliaServerRole` (policy in `../ceseelia_backend/iam/`), the SES identity and the Route53 zone. Adding them here would fail on "already exists" unless they're imported first.
 
 ## Data model (single-table)
 
@@ -48,7 +50,7 @@ On registration, a user with a known email but a new Cognito sub (e.g. a social 
 ## Deploy
 
 - Local: `./run.sh dev` or `./run.sh prod` (uses AWS profile `default` and `samconfig.toml`). The artifacts bucket is `ceseelia-sam-artifacts`.
-- CI: pushing to `dev_v1.0.0` deploys dev and pushing to `prod_v1.0.0` deploys prod. CI runs `npm install` in `lambda/layers/npm/nodejs` before `sam deploy` (SAM CLI pinned to 1.140.0).
+- CI: pushing to `dev_v1.0.0` deploys dev and pushing to `prod_v1.0.0` deploys prod, after `cfn-lint` passes (errors fail; warnings allowed). CI runs `npm install` in `lambda/layers/npm/nodejs` before `sam deploy` (SAM CLI pinned to 1.140.0).
 - Run `sam validate` / `sam build` to check template changes.
 
 ## Conventions & gotchas
@@ -57,5 +59,4 @@ On registration, a user with a known email but a new Cognito sub (e.g. a social 
 - Code is CommonJS JavaScript with the AWS SDK v3 (`@aws-sdk/*`). Add shared constants to `environment/index.js` instead of hardcoding them.
 - `environment/index.js` still contains values from other Primefaya projects (e.g. `SES_DEFAULT_FROM_ADDRESS` = expeerium, `rx_` product ids). Check before relying on them.
 - `.gitignore` excludes `**/npm/nodejs/node_modules/` but not the custom layer's `node_modules`, which is intentional.
-- Runtime `nodejs18.x` is past AWS end-of-support, so consider bumping `NodeJsRuntime`.
 - Never commit credentials. The README currently contains a plaintext test-account password that should be removed.
