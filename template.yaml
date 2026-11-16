@@ -638,12 +638,12 @@ Resources:
 
   # The API server (CeseeliaServerRole, made by hand) manages tenants on this distribution only.
   # CloudFront asks ACM for each tenant's certificate in the caller's name, hence the ACM actions;
-  # DeleteCertificate cleans up after a domain is removed.
+  # DeleteCertificate cleans up after a domain is removed. No ManagedPolicyName: a fixed name
+  # needs CAPABILITY_NAMED_IAM, and CI deploys with CAPABILITY_IAM only (CloudFormation names it).
   CustomDomainServerPolicy:
     Type: AWS::IAM::ManagedPolicy
     Condition: IsProductionEnvironment
     Properties:
-      ManagedPolicyName: !Sub ceseelia-custom-domains-${StageName}
       Description: Ceseelia API - stores' own domains (CloudFront distribution tenants)
       Roles: [ CeseeliaServerRole ]
       PolicyDocument:
