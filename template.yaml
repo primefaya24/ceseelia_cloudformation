@@ -408,6 +408,52 @@ Resources:
 
   # Pay as you go. PriceClass_200 (not 100) so shoppers in Asia (the `id` locale) get nearby edges;
   # PriceClass_All adds only South America and Oceania at a higher price.
+  # S.14 (backend §0 F1): the webapp's security headers, the managed SecurityHeadersPolicy's set
+  # plus a Content-Security-Policy. Scripts only from the site itself (the build has no inline
+  # script or handler: the webapp's angular.json turns off inlined critical CSS); network calls
+  # only to the API, Cognito and this stage's upload bucket; images from the storage CDN; Google
+  # Fonts; no frames, no plugins, never framed. Styles allow 'unsafe-inline' because Angular adds
+  # component styles as <style> tags at runtime. Tested in Chrome against the prod build
+  # 2026-11-16 (sign-in, storefront with images, checkout: no violations).
+  WebappSecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub ceseelia-webapp-security-${StageName}
+        Comment: Ceseelia webapp security headers with CSP (S.14)
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: !Sub
+              - >-
+                default-src 'self';
+                script-src 'self';
+                style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                font-src 'self' data: https://fonts.gstatic.com;
+                img-src 'self' data: blob: https://${StageName}.storage.${DomainName};
+                connect-src 'self' https://${ApiHost} https://cognito-idp.${AWS::Region}.amazonaws.com
+                https://ceseelia-storage-${StageName}.s3.${AWS::Region}.amazonaws.com
+                https://ceseelia-storage-${StageName}.s3.amazonaws.com;
+                worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none';
+                base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+              - ApiHost: !If [ IsProductionEnvironment, !Sub "api.${DomainName}", !Sub "dev.api.${DomainName}" ]
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: false
+            Override: true
+          XSSProtection:
+            ModeBlock: true
+            Protection: true
+            Override: true
+
   WebappDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -449,9 +495,8 @@ Resources:
           # Managed CachingOptimized: follows the files' Cache-Control (index.html no-cache,
           # hashed bundles a year; see the webapp's deploy script) and the preview's 5 minutes.
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # Managed SecurityHeadersPolicy: HSTS, nosniff, frame SAMEORIGIN, referrer policy,
-          # XSS protection. The Content-Security-Policy is still S.14 (it needs testing first).
-          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          # HSTS, nosniff, never framed, referrer policy, XSS protection and the CSP (S.14).
+          ResponseHeadersPolicyId: !Ref WebappSecurityHeadersPolicy
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt WebappRouterFunction.FunctionMetadata.FunctionARN
@@ -599,7 +644,7 @@ Resources:
           CachedMethods: [ GET, HEAD ]
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # managed CachingOptimized
-          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # managed SecurityHeadersPolicy
+          ResponseHeadersPolicyId: !Ref WebappSecurityHeadersPolicy # same headers and CSP as the webapp
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt CustomDomainRouterFunction.FunctionMetadata.FunctionARN
