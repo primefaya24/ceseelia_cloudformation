@@ -346,6 +346,9 @@ Resources:
   #     cache key, so bots and people never share a cached copy;
   #   - /api/... on the app's own domain is refused (the API has its own domain);
   #   - any other path without a file extension is an app route: /index.html.
+  # Store subdomains (prod, backend 9.8 phase 1): every store is also at https://<slug>.<DomainName>
+  # (the wildcard alias and records below; the webapp routes `/` there as `/s/<slug>`). A bot
+  # asking for `/` [?item=<id>] on one gets that store's preview the same way.
   WebappRouterFunction:
     Type: AWS::CloudFront::Function
     Properties:
@@ -354,34 +357,49 @@ Resources:
       FunctionConfig:
         Comment: SPA routes to index.html; link-preview bots to the API's preview page
         Runtime: cloudfront-js-2.0
-      FunctionCode: |
-        import cf from 'cloudfront';
+      FunctionCode: !Sub
+        - |
+          import cf from 'cloudfront';
 
-        var BOTS = /facebookexternalhit|facebot|twitterbot|whatsapp|linkedinbot|slackbot|telegrambot|discordbot|pinterest|skypeuripreview|redditbot|applebot|googlebot|bingbot|embedly|mastodon|vkshare|tumblr/i;
-        var STORE = /^\/s\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
-        var ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+          var APP_HOST = '${AppHost}';
+          var STORE_SUFFIX = '${StoreSuffix}';
+          var SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+          var BOTS = /facebookexternalhit|facebot|twitterbot|whatsapp|linkedinbot|slackbot|telegrambot|discordbot|pinterest|skypeuripreview|redditbot|applebot|googlebot|bingbot|embedly|mastodon|vkshare|tumblr/i;
+          var STORE = /^\/s\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
+          var ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
-        function handler(event) {
-          var req = event.request;
-          var uri = req.uri;
-          var ua = req.headers['user-agent'] ? req.headers['user-agent'].value : '';
-          var m = uri.toLowerCase().match(STORE);
-          if (m && BOTS.test(ua)) {
-            var item = req.querystring.item ? req.querystring.item.value : '';
-            req.uri = '/api/v1/store/public/preview/' + m[1] + (ULID.test(item) ? '/' + item : '');
-            req.querystring = {};
-            cf.selectRequestOriginById('api');
+          function handler(event) {
+            var req = event.request;
+            var uri = req.uri;
+            var ua = req.headers['user-agent'] ? req.headers['user-agent'].value : '';
+            var m = uri.toLowerCase().match(STORE);
+            var slug = m ? m[1] : '';
+            // On a store's own address (`<slug>.<domain>`) its storefront is `/`.
+            var host = req.headers.host ? req.headers.host.value.toLowerCase() : '';
+            if (!slug && STORE_SUFFIX && host !== APP_HOST && (uri === '/' || uri === '') &&
+                host.length > STORE_SUFFIX.length && host.slice(-STORE_SUFFIX.length) === STORE_SUFFIX) {
+              var sub = host.slice(0, -STORE_SUFFIX.length);
+              if (SLUG.test(sub)) slug = sub;
+            }
+            if (slug && BOTS.test(ua)) {
+              var item = req.querystring.item ? req.querystring.item.value : '';
+              req.uri = '/api/v1/store/public/preview/' + slug + (ULID.test(item) ? '/' + item : '');
+              req.querystring = {};
+              cf.selectRequestOriginById('api');
+              return req;
+            }
+            if (uri === '/api' || uri.indexOf('/api/') === 0) {
+              return { statusCode: 404, statusDescription: 'Not Found' };
+            }
+            var last = uri.substring(uri.lastIndexOf('/') + 1);
+            if (last.indexOf('.') === -1) {
+              req.uri = '/index.html';
+            }
             return req;
           }
-          if (uri === '/api' || uri.indexOf('/api/') === 0) {
-            return { statusCode: 404, statusDescription: 'Not Found' };
-          }
-          var last = uri.substring(uri.lastIndexOf('/') + 1);
-          if (last.indexOf('.') === -1) {
-            req.uri = '/index.html';
-          }
-          return req;
-        }
+        - AppHost: !If [ IsProductionEnvironment, !Sub "app.${DomainName}", !Sub "dev.${DomainName}" ]
+          # Empty = no store subdomains (dev: the *.ceseelia.com certificate doesn't cover *.dev).
+          StoreSuffix: !If [ IsProductionEnvironment, !Sub ".${DomainName}", "" ]
 
   # Pay as you go. PriceClass_200 (not 100) so shoppers in Asia (the `id` locale) get nearby edges;
   # PriceClass_All adds only South America and Oceania at a higher price.
@@ -393,6 +411,9 @@ Resources:
         Enabled: true
         Aliases:
           - !If [ IsProductionEnvironment, !Sub "app.${DomainName}", !Sub "dev.${DomainName}" ]
+          # Every store's own address (9.8 phase 1); names with their own record (api, dev,
+          # *.storage, mail) are untouched, since DNS and CloudFront prefer the exact name.
+          - !If [ IsProductionEnvironment, !Sub "*.${DomainName}", !Ref AWS::NoValue ]
         ViewerCertificate:
           AcmCertificateArn: !Ref CertificateArn
           SslSupportMethod: sni-only
@@ -450,6 +471,28 @@ Resources:
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !If [ IsProductionEnvironment, !Sub "app.${DomainName}.", !Sub "dev.${DomainName}." ]
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt WebappDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+  # Store subdomains (prod, 9.8 phase 1): <slug>.<DomainName> → the webapp. Existing names keep
+  # their own records; the webapp sends a name that can't be a store (admin., www.) to the app.
+  WebappStoresDnsA:
+    Type: AWS::Route53::RecordSet
+    Condition: IsProductionEnvironment
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "*.${DomainName}."
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt WebappDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+  WebappStoresDnsAAAA:
+    Type: AWS::Route53::RecordSet
+    Condition: IsProductionEnvironment
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "*.${DomainName}."
       Type: AAAA
       AliasTarget:
         DNSName: !GetAtt WebappDistribution.DomainName
