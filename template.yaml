@@ -433,10 +433,16 @@ Resources:
                 img-src 'self' data: blob: https://${StageName}.storage.${DomainName};
                 connect-src 'self' https://${ApiHost} https://cognito-idp.${AWS::Region}.amazonaws.com
                 https://ceseelia-storage-${StageName}.s3.${AWS::Region}.amazonaws.com
-                https://ceseelia-storage-${StageName}.s3.amazonaws.com;
+                https://ceseelia-storage-${StageName}.s3.amazonaws.com${LocalApi};
                 worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none';
-                base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+                base-uri 'self'; form-action 'self'; frame-ancestors 'none'${UpgradeInsecure}
               - ApiHost: !If [ IsProductionEnvironment, !Sub "api.${DomainName}", !Sub "dev.api.${DomainName}" ]
+                # Dev only (owner, 2026-11-17): dev.ceseelia.com talks to the backend running on the
+                # developer's own machine (http://localhost:3100). localhost is the one http origin
+                # browsers allow from an https page; upgrade-insecure-requests would turn it into
+                # https://localhost, so dev leaves it out. Prod keeps both as they were.
+                LocalApi: !If [ IsProductionEnvironment, "", " http://localhost:3100" ]
+                UpgradeInsecure: !If [ IsProductionEnvironment, "; upgrade-insecure-requests", "" ]
           ContentTypeOptions:
             Override: true
           FrameOptions:
